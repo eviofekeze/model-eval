@@ -69,6 +69,7 @@ def access_LIS(lon_range,lat_range,dates,variables,path,dx,dy,rsmpl):
     out_reproj = outt.assign_coords({'longitude':outt['lon'][0,:],'latitude':outt['lat'][:,0]})
     out_reproj = out_reproj.rename({'x':'longitude','y':'latitude'})
     out_reproj = out_reproj.rio.write_crs(4326)
+    out_reproj = out_reproj.drop_vars(['lat','lon'])
     
     return out_reproj
 
@@ -116,4 +117,24 @@ class access_snowEx:
         poly = gpd.GeoDataFrame(df, geometry='geometry', crs ="EPSG:4326").to_crs("EPSG:26912")
         df_clipped = gpd.clip(df_concat_gpd, poly)
         
-        return df_clipped
+        return df_clipped,poly
+    
+    def access_layerData(db_name,time_sel,time_buffer_dy,var_name,lat_range,lon_range):
+        engine, session = get_db(db_name)
+
+        # do date filtering
+        layerDates = session.query(LayerData.date).distinct().all()
+
+        time_sel_newForm = dateutil.parser.parse(time_sel)
+        start_date = time_sel_newForm-datetime.timedelta(days=time_buffer_dy)
+        start_date = start_date.date()
+        end_date = time_sel_newForm+datetime.timedelta(days=time_buffer_dy)
+        end_date = end_date.date()
+
+        collection_date = date_between_prime_snowEx(start_date, end_date, layerDates)
+        site_name = 'Grand Mesa'
+
+        result = session.query(func.ST_AsTiff(gfunc.ST_Union(ImageData.raster, _type=Raster))).filter(SiteData.site_name == site_name).filter(ImageData.date == collection_date).filter(ImageData.instrument == 'lidar').filter(ImageData.type == 'depth')
+        datasets = raster_to_rasterio(session, result)
+        
+        return datasets
